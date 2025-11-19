@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IntervuVerse - The Universal AI Trainer (Report Fix)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0d111c; color: #e5e7eb; }
+        .card { backdrop-filter: blur(10px); background-color: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .viva-mode { background: linear-gradient(135deg, #1f2937, #374151); }
+        .kids-mode { background: linear-gradient(135deg, #fef3c7, #fde047); color: #1f2937; }
+        .pro-mode { background: linear-gradient(135deg, #1e3a8a, #0c4a6e); }
+        .comm-mode { background: linear-gradient(135deg, #5b21aa, #8b5cf6); }
+        .arena-mode { background: linear-gradient(135deg, #991b1b, #b91c1c); }
+        .active-mode-btn { transform: translateY(-3px) scale(1.02); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
+        .mic-button { transition: all 0.2s ease-in-out; }
+        .mic-button.listening { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); animation: pulse-red 2s infinite; }
+        .loading-animation { border-top-color: #4f46e5; animation: spin 1s ease-in-out infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #8b5cf6; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #1f2937; }
+        /* Style for the Modal (Syllabus Viewer & Confirm) */
+        .modal { z-index: 1000; background-color: rgba(0, 0, 0, 0.8); }
+        .modal-content { max-height: 80vh; overflow-y: auto; }
+        /* Style for Report View */
+        .report-content { 
+            max-width: 100%;
+            padding: 1.5rem;
+            line-height: 1.6;
+            color: #d1d5db; /* Light gray text */
+            background-color: #1f2937; /* Dark background */
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.5);
+        }
+        .report-content h1 { font-size: 2rem; font-weight: bold; margin-bottom: 1rem; border-bottom: 2px solid #6366f1; padding-bottom: 0.5rem; color: #818cf8; }
+        .report-content h2 { font-size: 1.5rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.75rem; color: #a5b4fc; }
+        .report-content h3 { font-size: 1.25rem; font-weight: 500; margin-top: 1rem; margin-bottom: 0.5rem; color: #c4b5fd; }
+        .report-content p { margin-bottom: 1rem; }
+        .report-content ul { list-style: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+        .report-content li { margin-bottom: 0.5rem; }
+        .report-content pre { background-color: #0f172a; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-family: monospace; }
+    </style>
+    <!-- Load Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        window.firebaseApp = null;
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        window.isAuthReady = false;
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { /* mock config */ };
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                window.firebaseApp = initializeApp(firebaseConfig);
+                window.db = getFirestore(window.firebaseApp);
+                window.auth = getAuth(window.firebaseApp);
+
+                onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        window.userId = user.uid;
+                    } else {
+                        window.userId = 'anonymous-user-' + crypto.randomUUID().substring(0, 8); 
+                    }
+                    document.getElementById('current-user-id').textContent = window.userId;
+
+                    window.isAuthReady = true;
+                    if (window.onFirebaseReady) {
+                        window.onFirebaseReady();
+                    }
+                });
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(window.auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(window.auth);
+                }
+                
+                window.fb = {
+                    setDoc, doc, collection, serverTimestamp
+                };
+
+            } catch (error) {
+                console.error("Firebase Initialization or Auth Error:", error);
+            }
+        });
+    </script>
+</head>
+<body class="min-h-screen p-4 flex flex-col items-center justify-start transition-colors duration-500" id="main-body">
+
+    <!-- Main Application Container -->
+    <div id="app-container" class="w-full max-w-4xl flex flex-col items-center space-y-4">
+        
+        <!-- Header -->
+        <header class="w-full text-center py-3 rounded-xl shadow-lg bg-gray-800/70 card">
+            <h1 class="text-3xl font-extrabold text-indigo-400">
+                <span class="text-white">Intervu</span>Verse 🧠
+            </h1>
+            <p class="text-sm text-gray-400 mt-1">Universal AI Interview & Communication Trainer</p>
+        </header>
+
+        <!-- Global Controls / Multilingual & User ID -->
+        <div class="w-full flex justify-between items-center px-4 py-2 bg-gray-700/50 rounded-lg shadow-md">
+            <div class="flex items-center space-x-2">
+                <label for="language-select" class="text-sm font-medium text-gray-300">Language:</label>
+                <select id="language-select" class="p-1 rounded-md bg-gray-800 text-sm text-white border-gray-600 focus:ring-indigo-500">
+                    <option value="en-US">English (US)</option>
+                    <option value="hi-IN">Hindi</option>
+                    <option value="es-ES">Spanish</option>
+                    <option value="fr-FR">French</option>
+                    <option value="de-DE">German</option>
+                    <option value="ja-JP">Japanese</option>
+                </select>
+            </div>
+            <div class="flex items-center space-x-2">
+                <p class="text-sm font-medium text-gray-300 hidden md:block">User ID:</p>
+                <span id="current-user-id" class="font-mono text-xs text-indigo-300">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Motivational Quote of the Day -->
+        <div id="motivational-quote-block" class="w-full max-w-4xl p-4 rounded-xl shadow-2xl text-center
+            bg-gradient-to-r from-indigo-800 to-purple-800 border border-purple-600/50">
+            <p class="text-sm font-light text-indigo-200">✨ Quote of the Day ✨</p>
+            <p id="quote-text" class="text-lg md:text-xl font-bold italic text-white mt-1">
+                Loading motivation...
+            </p>
+            <p id="quote-author" class="text-xs font-medium text-purple-300 mt-2">— Author</p>
+        </div>
+        
+        <!-- Main Content Area -->
+        <main class="w-full card rounded-xl p-4 md:p-6 shadow-2xl min-h-[60vh]">
+            
+            <!-- Home Screen (Mode Selection) -->
+            <div id="home-screen" class="space-y-6 transition-all duration-300">
+                <h2 class="text-xl md:text-2xl font-semibold text-center text-indigo-300 mb-6">Choose Your Training Module</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    
+                    <button onclick="showMode('viva')" class="viva-mode text-white p-5 rounded-xl shadow-xl hover:shadow-indigo-500/50 transition-all duration-300 active:active-mode-btn">
+                        <span class="text-3xl">🎓</span>
+                        <p class="text-lg font-bold mt-2">AI Exam & Viva Simulator</p>
+                        <p class="text-sm text-gray-300">CBSE, ICSE, IGCSE, State Board Orals</p>
+                    </button>
+
+                    <button onclick="showMode('kids')" class="kids-mode text-gray-900 p-5 rounded-xl shadow-xl hover:shadow-yellow-600/50 transition-all duration-300 active:active-mode-btn">
+                        <span class="text-3xl">🧸</span>
+                        <p class="text-lg font-bold mt-2">Pre-Primary Admission Trainer (Voice-to-Voice)</p>
+                        <p class="text-sm text-gray-700">Nursery, LKG, UKG Interactive Test</p>
+                    </button>
+
+                    <button onclick="showMode('pro')" class="pro-mode text-white p-5 rounded-xl shadow-xl hover:shadow-blue-500/50 transition-all duration-300 active:active-mode-btn">
+                        <span class="text-3xl">🎯</span>
+                        <p class="text-lg font-bold mt-2">Competitive / Job Interview Simulator</p>
+                        <p class="text-sm text-gray-300">UPSC, NDA, SSC CGL, Corporate HR</p>
+                    </button>
+
+                    <button onclick="showMode('comm')" class="bg-purple-600 hover:bg-purple-700 text-white p-5 rounded-xl shadow-xl hover:shadow-purple-500/50 transition-all duration-300 active:active-mode-btn">
+                        <span class="text-3xl">🗣️</span>
+                        <p class="text-lg font-bold mt-2">Communication Trainer</p>
+                        <p class="text-sm text-gray-300">Fluency, Pronunciation & Confidence</p>
+                    </button>
+                    
+                    <button onclick="showMode('pro'); document.getElementById('resume-tab').click();" class="bg-teal-600 hover:bg-teal-700 text-white p-5 rounded-xl shadow-xl hover:shadow-teal-500/50 transition-all duration-300 active:active-mode-btn">
+                        <span class="text-3xl">💼</span>
+                        <p class="text-lg font-bold mt-2">Resume Analyzer & Mock</p>
+                        <p class="text-sm text-gray-300">Personalized Interview Prep</p>
+                    </button>
+
+                    <button onclick="showMode('arena')" class="bg-red-600 hover:bg-red-700 text-white p-5 rounded-xl shadow-xl hover:shadow-red-500/50 transition-all duration-300 active:active-mode-btn">
+                        <span class="text-3xl">🎮</span>
+                        <p class="text-lg font-bold mt-2">Mock Interview Arena (Gamified)</p>
+                        <p class="text-sm text-gray-300">Join a competitive mock session</p>
+                    </button>
+
+                </div>
+            </div>
+
+            <!-- Configuration Screens (Initially Hidden) -->
+            <div id="viva-config" class="hidden space-y-6 transition-all duration-300">
+                <h2 class="text-2xl font-semibold text-indigo-300 text-center">🎓 Viva Simulator Setup</h2>
+                <div class="card p-4 rounded-xl space-y-4">
+                    
+                    <div class="grid grid-cols-3 gap-3">
+                        <select id="viva-board" onchange="updateVivaOptions()" class="p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-indigo-500 focus:border-indigo-500"></select>
+                        <select id="viva-class" onchange="updateVivaSubjects()" class="p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-indigo-500 focus:border-indigo-500"></select>
+                        <select id="viva-subject" class="p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-indigo-500 focus:border-indigo-500"></select>
+                    </div>
+
+                    <div class="flex space-x-2">
+                         <button onclick="fetchSyllabusSummary()" class="flex-1 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg font-bold text-sm transition">
+                            <span id="syllabus-button-text">View Official Syllabus</span>
+                        </button>
+                        <button onclick="startInterview('viva')" class="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-bold transition">Start Viva</button>
+                    </div>
+                   
+                    <textarea id="viva-custom-topics" rows="3" placeholder="Paste specific topics (e.g., Chapter 5: Electricity) for precise questions (Optional)" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+
+                </div>
+            </div>
+            
+            <div id="kids-config" class="hidden space-y-6 transition-all duration-300">
+                <h2 class="text-2xl font-semibold text-yellow-500 text-center">🧸 Pre-Primary Trainer Setup (Voice Mode)</h2>
+                <div class="card p-4 rounded-xl space-y-4 bg-yellow-100 text-gray-900">
+                    <p class="text-sm text-gray-700 font-semibold text-center">AI Question **will be spoken** in this mode to maximize interaction.</p>
+                    <select id="kids-level" class="w-full p-3 rounded-lg bg-white border-yellow-300 text-gray-900 focus:ring-yellow-500 focus:border-yellow-500">
+                        <option value="Nursery">Nursery (Basic)</option>
+                        <option value="LKG">LKG (Intermediate)</option>
+                        <option value="UKG">UKG (Advanced)</option>
+                    </select>
+                    <button onclick="startInterview('kids')" class="w-full py-3 bg-yellow-500 hover:bg-yellow-600 rounded-lg font-bold text-gray-900 transition">Start Fun Interview</button>
+                </div>
+            </div>
+
+            <div id="pro-config" class="hidden space-y-6 transition-all duration-300">
+                <h2 class="text-2xl font-semibold text-blue-300 text-center">🎯 Professional Interview Setup</h2>
+                
+                <div class="flex border-b border-gray-700">
+                    <button id="exam-tab" onclick="toggleProTab('exam')" class="tab-button flex-1 py-3 text-center text-sm font-medium border-b-2 border-indigo-500 text-indigo-400 transition duration-300">Exam Simulation</button>
+                    <button id="resume-tab" onclick="toggleProTab('resume')" class="tab-button flex-1 py-3 text-center text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-indigo-300 transition duration-300">Resume Analyzer</button>
+                </div>
+
+                <!-- Exam Simulation Tab -->
+                <div id="pro-exam-content" class="card p-4 rounded-xl space-y-4">
+                    <select id="pro-exam-type" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500">
+                        <option value="UPSC IAS Panel">UPSC IAS Panel Interview</option>
+                        <option value="NDA SSB">NDA SSB Interview</option>
+                        <option value="SSC CGL">SSC CGL Tier 3</option>
+                        <option value="IBPS PO">IBPS PO Interview</option>
+                        <option value="Corporate HR">Corporate HR Manager</option>
+                    </select>
+                    
+                    <select id="pro-pacing" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500">
+                        <option value="Standard">Pacing: Standard (Balanced)</option>
+                        <option value="Slow and Detailed">Pacing: Slow (Detailed Questions, Gentle Follow-ups)</option>
+                        <option value="Fast and Stressful">Pacing: Fast (Rapid-fire, Stressful Follow-ups)</option>
+                    </select>
+                    
+                    <select id="pro-panelist-voice" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500">
+                        <option value="Kore">Panelist Tone: Kore (Firm, Professional)</option>
+                        <option value="Charon">Panelist Tone: Charon (Informative)</option>
+                        <option value="Zephyr">Panelist Tone: Zephyr (Bright)</option>
+                    </select>
+                    <button onclick="startInterview('pro')" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-bold transition">Start Professional Mock</button>
+                </div>
+
+                <!-- Resume Analyzer Tab -->
+                <div id="pro-resume-content" class="card p-4 rounded-xl space-y-4 hidden">
+                    <input type="file" id="resume-file" accept=".txt,.pdf" onchange="displayResumeName(this)" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    <div id="resume-status" class="text-sm text-gray-400">No file selected.</div>
+                    <button onclick="analyzeResume()" class="w-full py-3 bg-teal-600 hover:bg-teal-700 rounded-lg font-bold transition">Analyze & Start Personalized Mock</button>
+                    <div id="resume-analysis-output" class="text-sm text-yellow-300 mt-2 p-2 bg-gray-800 rounded hidden"></div>
+                </div>
+            </div>
+
+            <!-- Communication Trainer Config (Detailed Features Added) -->
+            <div id="comm-config" class="hidden space-y-6 transition-all duration-300">
+                <h2 class="text-2xl font-semibold text-purple-300 text-center">🗣️ Detailed Communication Trainer</h2>
+                <div class="card p-4 rounded-xl space-y-4">
+                    <div class="grid grid-cols-2 gap-3">
+                        <select id="comm-scenario" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-purple-500 focus:border-purple-500">
+                            <option value="Presentation">Presentation Practice (Formal)</option>
+                            <option value="Self-Introduction">Self-Introduction (Confidence)</option>
+                            <option value="Empathetic Role-Play">Empathetic Role-Play (Customer Service)</option>
+                            <option value="Debate">Debate/Argument Practice (Clarity)</option>
+                        </select>
+                        <select id="comm-goal" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-purple-500 focus:border-purple-500">
+                            <option value="Pace & Rhythm">Focus: Pace & Rhythm (Speed, Pauses)</option>
+                            <option value="Clarity & Pronunciation">Focus: Clarity & Pronunciation</option>
+                            <option value="Confidence & Tone">Focus: Confidence & Tone (Vocal energy, Body Language)</option>
+                            <option value="Vocabulary & Structure">Focus: Vocabulary & Structure</option>
+                        </select>
+                    </div>
+                    <textarea id="comm-context" rows="4" placeholder="Enter the specific topic or context (e.g., 'Presenting Q4 financial results' or 'Handling a frustrated customer's refund request')." class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-purple-500 focus:border-purple-500">Presenting a new strategy for remote teamwork.</textarea>
+                    
+                    <button onclick="startInterview('comm')" class="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-bold transition">Start Role-Play Session</button>
+                </div>
+            </div>
+
+            <!-- Gamified Arena Config (Simplified) -->
+            <div id="arena-config" class="hidden space-y-6 transition-all duration-300">
+                <h2 class="text-2xl font-semibold text-red-300 text-center">🎮 Mock Interview Arena</h2>
+                <div class="card p-4 rounded-xl space-y-4">
+                    <p class="text-sm text-gray-400">This feature simulates a competitive environment. The AI will judge all participants based on the chosen interview type. The question will appear as text for faster interaction.</p>
+                    <select id="arena-type" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:ring-red-500 focus:border-red-500">
+                        <option value="MBA Admission Group Discussion">MBA Admission Group Discussion</option>
+                        <option value="Tech Lead Scenario">Tech Lead Scenario Interview</option>
+                    </select>
+                    <div id="leaderboard" class="p-3 bg-gray-800 rounded-lg space-y-2">
+                        <h4 class="font-semibold text-red-300">Simulated Leaderboard</h4>
+                        <p class="text-xs text-gray-400">1. You: 0 pts (Start an interview to gain points)</p>
+                    </div>
+                    <button onclick="startInterview('arena')" class="w-full py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition">Start Arena Session</button>
+                </div>
+            </div>
+
+            <!-- Interview Screen (Voice Interaction) -->
+            <div id="interview-screen" class="hidden flex flex-col items-center space-y-6 transition-all duration-300 min-h-[50vh]">
+                
+                <!-- Back Button -->
+                <button onclick="backToModes()" class="flex items-center text-sm text-indigo-400 hover:text-indigo-300 self-start">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to Modes
+                </button>
+
+                <!-- AI Avatar / Panelist -->
+                <div id="ai-avatar-container" class="relative w-28 h-28 md:w-32 h-32 bg-gray-700 rounded-full flex items-center justify-center border-4 border-indigo-400 shadow-xl">
+                    <span id="ai-avatar-icon" class="text-5xl md:text-6xl">🧠</span>
+                    <div id="ai-speaking-indicator" class="absolute inset-0 rounded-full border-4 border-transparent border-t-red-500 animate-spin hidden"></div>
+                </div>
+                <p id="ai-role-display" class="text-sm font-medium text-gray-400">Loading AI Role...</p>
+
+                <!-- Question / Passage Area -->
+                <div class="w-full card p-4 md:p-6 rounded-xl shadow-inner min-h-[150px] flex flex-col justify-center">
+                    <p id="ai-question" class="text-xl md:text-2xl font-semibold text-center text-white italic">Select a mode and tap 'Start' to begin...</p>
+                    <p id="comm-scenario-text" class="text-lg text-center text-gray-300 mt-2 hidden"></p>
+                </div>
+
+                <!-- Feedback Area (Only visible after first answer) -->
+                <div id="feedback-area" class="w-full p-3 bg-gray-700 rounded-lg shadow-md hidden">
+                    <p class="text-sm font-semibold text-green-400">AI Feedback:</p>
+                    <p id="ai-feedback-text" class="text-base text-gray-200 mt-1"></p>
+                    <div id="sentiment-analysis" class="mt-2 p-2 bg-gray-800 rounded-md text-xs">
+                        <p class="font-semibold text-yellow-300">Tone Detected: <span id="tone-text" class="font-normal text-yellow-100">Analyzing...</span></p>
+                    </div>
+                    <p id="user-transcript" class="text-xs text-gray-500 mt-2">You said: <span id="user-transcript-text" class="italic"></span></p>
+                </div>
+                
+                <!-- Mic Button -->
+                <button id="mic-btn" onclick="toggleSpeechRecognition()" class="mic-button w-20 h-20 bg-red-500 rounded-full flex items-center justify-center shadow-2xl hover:bg-red-600 transition-all duration-300 disabled:opacity-50" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7v0a7 7 0 01-7-7v0M5 10a7 7 0 0114 0M12 4v16M8 20h8" />
+                    </svg>
+                </button>
+                <!-- Mic Status & Thinking Indicator -->
+                <div class="flex items-center space-x-2">
+                    <div id="thinking-indicator" class="loading-animation w-4 h-4 border-2 border-gray-500 border-t-indigo-500 rounded-full animate-spin hidden"></div>
+                    <p id="mic-status" class="text-sm text-gray-400 mt-2">Initializing...</p>
+                </div>
+
+                <!-- End Session Button -->
+                <button id="end-session-btn" onclick="endSessionAndGenerateReport()" class="w-full max-w-xs py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-white transition disabled:opacity-50 shadow-lg">
+                    End Session & Generate Report
+                </button>
+            </div>
+            
+            <!-- NEW: Analysis Report View (Markdown Rendering) -->
+            <div id="report-view" class="hidden flex flex-col items-center space-y-6 transition-all duration-300 w-full">
+                <h2 class="text-2xl font-bold text-indigo-400">Interview Session Report</h2>
+                <div id="analysis-report-content" class="report-content w-full min-h-[40vh] custom-scroll">
+                    <!-- Report will be rendered here -->
+                    <p class="text-gray-400 text-center">Generating detailed report...</p>
+                </div>
+                <button onclick="backToModes()" class="w-full max-w-xs py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-bold text-white transition shadow-lg">
+                    Return to Modes
+                </button>
+            </div>
+
+        </main>
+
+    </div>
+     <!-- Footer -->
+    <footer class="w-full max-w-4xl mt-8 p-6 rounded-xl shadow-lg bg-gray-800/70 card text-gray-400 text-sm space-y-4">
+        <div class="border-t border-gray-700 pt-4 space-y-2">
+            <p class="font-bold text-base text-white">Powered By</p>
+            <p>The <strong class="text-indigo-400">Innoverse Team (Pramiti Pandey, Drishti Agrawal, Aashi Maurya, Varshika, Hiral Srivastava)</strong></p>
+            <p>AI Model: <span class="font-medium text-purple-300">Gemini 2.5 Flash</span></p>
+        </div>
+
+        <div class="border-t border-gray-700 pt-4">
+            <p class="font-bold text-base text-white mb-2">About IntervuVerse</p>
+            <p class="leading-relaxed">
+                <strong class="text-indigo-400">IntervuVerse</strong>– The Universal AI Interview & Communication Trainer – is an innovative project developed for our School’s Art and Science Exhibition 2025. It is designed to help learners of all ages build confidence and communication skills through interactive AI-based interviews and voice analysis. "From nursery admission tests to UPSC interviews", IntervuVerse provides personalized guidance, instant feedback, and a fun way to learn and improve. Created by Team InnoVerse with the support of our teachers and school, this project reflects our belief that technology, when blended with creativity, can inspire fearless learning and confident expression.
+            </p>
+        </div>
+
+        <div class="border-t border-gray-700 pt-4 text-center text-xs">
+            Made with passion, purpose, and innovation — Team InnoVerse, 2025
+        </div>
+    </footer>
+    <!-- Syllabus Modal -->
+    <div id="syllabus-modal" class="modal fixed inset-0 flex items-center justify-center hidden">
+        <div class="modal-content card bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-2xl">
+            <h3 class="text-xl font-bold text-indigo-300 mb-4">Official Syllabus Summary</h3>
+            <p id="syllabus-modal-status" class="text-sm text-gray-400 mb-4">Select a Board, Class, and Subject to view its syllabus.</p>
+            <div id="syllabus-modal-body" class="text-sm text-gray-200 h-64 overflow-y-auto custom-scroll">
+                <p id="syllabus-text-output" class="text-gray-400">The syllabus will appear here after fetching.</p>
+            </div>
+            <button onclick="document.getElementById('syllabus-modal').classList.add('hidden')" class="mt-4 w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-bold transition">Close</button>
+        </div>
+    </div>
+    
+    <!-- Confirmation Modal (Custom alert/confirm replacement) -->
+    <div id="confirm-modal" class="modal fixed inset-0 flex items-center justify-center hidden">
+        <div class="modal-content card bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-sm">
+            <h3 id="confirm-modal-title" class="text-xl font-bold text-red-400 mb-4"></h3>
+            <p id="confirm-modal-body" class="text-sm text-gray-200 mb-6"></p>
+            <div class="flex justify-end space-x-3">
+                <button id="confirm-modal-cancel" class="py-2 px-4 bg-gray-600 hover:bg-gray-700 rounded-lg font-bold transition">Cancel</button>
+                <button id="confirm-modal-confirm" class="py-2 px-4 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        
+        // --- CONSTANTS AND STATE MANAGEMENT ---
+        const LLM_MODEL = 'gemini-2.5-flash-preview-09-2025';
+        const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+        const apiKey = "AIzaSyBM9KMXEQyIirbSDpvNjZaeCbfHU4ukXUk"; // Canvas will provide this in runtime
+
+        let currentMode = 'home';
+        let isSpeaking = false;
+        let isListening = false;
+        let conversationHistory = [];
+        let recognition = null;
+        let currentPanelistVoice = 'Kore'; 
+        let audioPlayPromise = null; 
+        let currentAudio = null; 
+
+        // Motivational Quotes Array
+        const MOTIVATIONAL_QUOTES = [
+            { quote: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+            { quote: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+            { quote: "Success is not final, failure is not fatal: it is the courage to continue that counts.", author: "Winston Churchill" },
+            { quote: "Believe you can and you’re halfway there.", author: "Theodore Roosevelt" },
+            { quote: "It does not matter how slowly you go as long as you do not stop.", author: "Confucius" },
+            { quote:"The way to get started is to quit talking and begin doing.", author: "Walt Disney"},
+            { quote:"The only guarantee for failure is to stop trying.", author: "John C. Maxwell"}
+        ];
+
+        // *** EXPANDED VIVA SUBJECTS ***
+        const VIVA_SUBJECTS = {
+            "CBSE": {
+                "9th": ["Mathematics", "Science (Physics, Chemistry, Biology)", "Social Science (History, Civics, Geography)", "English Language and Literature", "Hindi Language and Literature", "Computer Science"],
+                "10th": ["Mathematics", "Science (Physics, Chemistry, Biology)", "Social Science (History, Civics, Geography)", "English Language and Literature", "Hindi Language and Literature", "Computer Science"],
+                "11th": ["Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Political Science", "History", "Business Studies", "Accountancy", "Home Science", "Fine Arts", "Agriculture", "Computer Science", "Sociology", "Psychology", "Philosophy", "Physical Education", "Music and Dance", "English", "Hindi"],
+                "12th": ["Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Political Science", "History", "Business Studies", "Accountancy", "Home Science", "Fine Arts", "Agriculture", "Computer Science", "Sociology", "Psychology", "Philosophy", "Physical Education", "Music and Dance", "English", "Hindi"]
+            },
+            "ICSE": {
+                "9th": ["English Language", "English Literature", "Hindi Grammar", "Hindi Literature", "History", "Civics", "Geography", "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Computer Applications", "Economic Applications", "Commercial Applications"],
+                "10th": ["English Language", "English Literature", "Hindi Grammar", "Hindi Literature", "History", "Civics", "Geography", "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Computer Applications", "Economic Applications", "Commercial Applications"],
+                "11th (ISC)": ["Biology", "Chemistry", "Physics", "History", "Political Science", "Psychology", "Mathematics", "Accounts", "Commerce", "Sociology", "Economics", "Hindi", "English Language", "English Literature", "Computer Science"],
+                "12th (ISC)": ["Biology", "Chemistry", "Physics", "History", "Political Science", "Psychology", "Mathematics", "Accounts", "Commerce", "Sociology", "Economics", "Hindi", "English Language", "English Literature", "Computer Science"]
+            },
+            "IGCSE": {
+                "9th": ["Coordinated Sciences", "Mathematics", "First Language English", "Global Perspectives"],
+                "10th": ["Coordinated Sciences", "Mathematics", "First Language English", "Global Perspectives"],
+                "11th": ["Physics", "Chemistry", "Biology", "Maths", "Business Studies"],
+                "12th": ["Physics", "Chemistry", "Biology", "Maths", "Business Studies"]
+            },
+            "IB": {
+                "DP 1": ["Math Analysis & Approaches", "Physics SL", "History HL", "Economics HL"],
+                "DP 2": ["Math Analysis & Approaches", "Physics SL", "History HL", "Economics HL"]
+            },
+            "State (MH)": {
+                "9th": ["Marathi", "Science", "Maths"],
+                "10th": ["Marathi", "Science", "Maths"],
+                "11th": ["Physics", "Chemistry", "Biology", "Maths"],
+                "12th": ["Physics", "Chemistry", "Biology", "Maths"]
+            }
+        };
+
+        // UI elements
+        const ui = {
+            mainBody: document.getElementById('main-body'),
+            homeScreen: document.getElementById('home-screen'),
+            interviewScreen: document.getElementById('interview-screen'),
+            reportView: document.getElementById('report-view'), // NEW
+            configs: { viva: document.getElementById('viva-config'), kids: document.getElementById('kids-config'), pro: document.getElementById('pro-config'), comm: document.getElementById('comm-config'), arena: document.getElementById('arena-config') },
+            micBtn: document.getElementById('mic-btn'),
+            micStatus: document.getElementById('mic-status'),
+            aiQuestion: document.getElementById('ai-question'),
+            aiAvatar: document.getElementById('ai-avatar-icon'),
+            aiRoleDisplay: document.getElementById('ai-role-display'),
+            feedbackArea: document.getElementById('feedback-area'),
+            aiFeedbackText: document.getElementById('ai-feedback-text'),
+            userTranscriptText: document.getElementById('user-transcript-text'),
+            aiSpeakingIndicator: document.getElementById('ai-speaking-indicator'),
+            commScenarioText: document.getElementById('comm-scenario-text'), 
+            thinkingIndicator: document.getElementById('thinking-indicator'),
+            toneText: document.getElementById('tone-text'),
+            languageSelect: document.getElementById('language-select'),
+            vivaBoard: document.getElementById('viva-board'),
+            vivaClass: document.getElementById('viva-class'),
+            vivaSubject: document.getElementById('viva-subject'),
+            syllabusButtonText: document.getElementById('syllabus-button-text'),
+            syllabusModal: document.getElementById('syllabus-modal'),
+            syllabusTextOutput: document.getElementById('syllabus-text-output'),
+            analysisReportContent: document.getElementById('analysis-report-content'),
+            quoteText: document.getElementById('quote-text'), 
+            quoteAuthor: document.getElementById('quote-author'), 
+        };
+
+        // --- FIREBASE/FIRESTORE LOGIC ---
+        
+        window.onFirebaseReady = () => {
+            console.log("Firebase is ready. User ID:", window.userId);
+            populateVivaBoard();
+        };
+
+        async function savePerformance(mode, score, details) {
+            if (!window.isAuthReady || !window.userId || !window.db || !window.fb) {
+                console.warn("Firestore not ready or userId missing. Skipping save.");
+                return;
+            }
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const path = window.fb.doc(window.db, "artifacts", appId, "users", window.userId, "performance", new Date().getTime().toString());
+                await window.fb.setDoc(path, {
+                    mode: mode,
+                    score: score,
+                    details: details,
+                    timestamp: window.fb.serverTimestamp()
+                });
+                console.log("Performance saved successfully.");
+            } catch (e) {
+                console.error("Error saving document: ", e);
+            }
+        }
+        
+        // --- VIVA CONFIGURATION LOGIC ---
+
+        function populateVivaBoard() {
+            ui.vivaBoard.innerHTML = '';
+            Object.keys(VIVA_SUBJECTS).forEach(board => {
+                const option = document.createElement('option');
+                option.value = board;
+                option.textContent = board;
+                ui.vivaBoard.appendChild(option);
+            });
+            updateVivaOptions();
+        }
+
+        function updateVivaOptions() {
+            const selectedBoard = ui.vivaBoard.value;
+            const classes = VIVA_SUBJECTS[selectedBoard] || {};
+            ui.vivaClass.innerHTML = '';
+            Object.keys(classes).forEach(cls => {
+                const option = document.createElement('option');
+                option.value = cls;
+                option.textContent = `Class ${cls}`;
+                ui.vivaClass.appendChild(option);
+            });
+            updateVivaSubjects();
+        }
+
+        function updateVivaSubjects() {
+            const selectedBoard = ui.vivaBoard.value;
+            const selectedClass = ui.vivaClass.value;
+            const subjects = VIVA_SUBJECTS[selectedBoard]?.[selectedClass] || [];
+            ui.vivaSubject.innerHTML = '';
+            subjects.forEach(subject => {
+                const option = document.createElement('option');
+                option.value = subject;
+                option.textContent = subject;
+                ui.vivaSubject.appendChild(option);
+            });
+        }
+
+        // --- UI & MODE SWITCHING ---
+
+        // Function to display a random motivational quote
+        function displayRandomQuote() {
+            if (ui.quoteText && ui.quoteAuthor) {
+                const randomQuote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
+                ui.quoteText.textContent = `“${randomQuote.quote}”`;
+                ui.quoteAuthor.textContent = `— ${randomQuote.author}`;
+            }
+        }
+
+        function showThinking(text = 'AI is thinking...') {
+            ui.micStatus.textContent = text;
+            ui.micBtn.disabled = true;
+            document.getElementById('end-session-btn').disabled = true;
+            ui.thinkingIndicator.classList.remove('hidden');
+        }
+
+        function hideThinking() {
+            ui.micStatus.textContent = 'Tap to Speak';
+            ui.micBtn.disabled = false;
+            document.getElementById('end-session-btn').disabled = false;
+            ui.thinkingIndicator.classList.add('hidden');
+        }
+
+        function setAppTheme(themeClass) {
+            ui.mainBody.className = ui.mainBody.className.split(' ').filter(c => !c.endsWith('-mode')).join(' ');
+            if (themeClass) {
+                ui.mainBody.classList.add(themeClass);
+            }
+        }
+
+        function showMode(mode) {
+            currentMode = mode;
+            ui.homeScreen.classList.add('hidden');
+            ui.interviewScreen.classList.add('hidden');
+            ui.reportView.classList.add('hidden'); // Ensure report is hidden
+            Object.values(ui.configs).forEach(el => el.classList.add('hidden'));
+
+            if (mode === 'home') {
+                ui.homeScreen.classList.remove('hidden');
+                setAppTheme('');
+                ui.micBtn.disabled = true;
+                ui.micStatus.textContent = 'Select a mode to begin.';
+            } else if (ui.configs[mode]) {
+                ui.configs[mode].classList.remove('hidden');
+                setAppTheme(`${mode}-mode`);
+            }
+        }
+
+        function toggleProTab(tab) {
+            const examContent = document.getElementById('pro-exam-content');
+            const resumeContent = document.getElementById('pro-resume-content');
+            const examTab = document.getElementById('exam-tab');
+            const resumeTab = document.getElementById('resume-tab');
+
+            if (tab === 'exam') {
+                examContent.classList.remove('hidden');
+                resumeContent.classList.add('hidden');
+                examTab.classList.remove('border-transparent', 'text-gray-400');
+                examTab.classList.add('border-indigo-500', 'text-indigo-400');
+                resumeTab.classList.remove('border-indigo-500', 'text-indigo-400');
+                resumeTab.classList.add('border-transparent', 'text-gray-400');
+            } else {
+                examContent.classList.add('hidden');
+                resumeContent.classList.remove('hidden');
+                resumeTab.classList.remove('border-transparent', 'text-gray-400');
+                resumeTab.classList.add('border-indigo-500', 'text-indigo-400');
+                examTab.classList.remove('border-indigo-500', 'text-gray-400');
+                examTab.classList.add('border-transparent', 'text-gray-400');
+            }
+        }
+
+        function displayResumeName(input) {
+            const status = document.getElementById('resume-status');
+            if (input.files.length > 0) {
+                status.textContent = `File selected: ${input.files[0].name}`;
+            } else {
+                status.textContent = 'No file selected.';
+            }
+        }
+        
+        // --- CUSTOM MODAL IMPLEMENTATION (Replaces window.confirm) ---
+
+        function showCustomConfirmModal(title, body) {
+            return new Promise(resolve => {
+                const modal = document.getElementById('confirm-modal');
+                document.getElementById('confirm-modal-title').textContent = title;
+                document.getElementById('confirm-modal-body').textContent = body;
+                
+                const confirmBtn = document.getElementById('confirm-modal-confirm');
+                const cancelBtn = document.getElementById('confirm-modal-cancel');
+
+                // Handlers must be defined outside to allow removal
+                const confirmHandler = () => {
+                    modal.classList.add('hidden');
+                    confirmBtn.removeEventListener('click', confirmHandler);
+                    cancelBtn.removeEventListener('click', cancelHandler);
+                    resolve(true);
+                };
+                
+                const cancelHandler = () => {
+                    modal.classList.add('hidden');
+                    confirmBtn.removeEventListener('click', confirmHandler);
+                    cancelBtn.removeEventListener('click', cancelHandler);
+                    resolve(false);
+                };
+
+                confirmBtn.addEventListener('click', confirmHandler);
+                cancelBtn.addEventListener('click', cancelHandler);
+
+                modal.classList.remove('hidden');
+            });
+        }
+
+        // --- SPEECH RECOGNITION (STT) ---
+
+        function initSpeechRecognition() {
+            const langCode = ui.languageSelect.value;
+
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                ui.micStatus.textContent = 'Speech Recognition NOT supported. Check Chrome/Mobile.';
+                ui.micBtn.disabled = true;
+                return false;
+            }
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = langCode; 
+
+            recognition.onstart = () => {
+                isListening = true;
+                ui.micBtn.classList.add('listening', 'bg-red-700');
+                ui.micStatus.textContent = 'Listening... Speak clearly now.';
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = Array.from(event.results)
+                    .map(result => result[0].transcript)
+                    .join('');
+                recognition.stop(); 
+                processUserResponse(transcript);
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                isListening = false;
+                ui.micBtn.classList.remove('listening', 'bg-red-700');
+                ui.micBtn.disabled = false;
+                ui.micStatus.textContent = `Error: ${event.error}. Tap to retry.`;
+                hideThinking();
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                ui.micBtn.classList.remove('listening', 'bg-red-700');
+                if (ui.micStatus.textContent === 'Listening... Speak clearly now.') {
+                    ui.micStatus.textContent = 'No voice detected. Tap to retry.';
+                }
+            };
+            return true;
+        }
+
+        // Re-initialize recognition when language changes
+        ui.languageSelect.onchange = () => {
+             if (currentMode === 'interview' && recognition) {
+                initSpeechRecognition();
+                ui.micStatus.textContent = `Language switched to ${ui.languageSelect.options[ui.languageSelect.selectedIndex].text}. Tap to speak.`;
+            } else if (currentMode !== 'home') {
+                 initSpeechRecognition();
+            }
+        };
+
+
+        function toggleSpeechRecognition() {
+            if (isSpeaking) {
+                if (currentAudio) currentAudio.pause();
+                resetSpeakingState('Tap to Speak');
+                return;
+            }
+            if (!recognition) {
+                if(initSpeechRecognition()){
+                    ui.micStatus.textContent = 'Ready. Tap again to speak.';
+                }
+                return;
+            }
+
+            if (isListening) {
+                recognition.stop();
+            } else {
+                try {
+                    recognition.start();
+                    ui.micBtn.disabled = true; 
+                    setTimeout(() => { 
+                        if (!isListening) ui.micBtn.disabled = false;
+                    }, 500); 
+                } catch (e) {
+                    console.error("Recognition start failed, possibly already active:", e);
+                    ui.micStatus.textContent = 'Ready. Tap to Speak.';
+                }
+            }
+        }
+
+        // --- TTS HELPER FUNCTIONS (PCM to WAV conversion) ---
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function pcmToWav(pcm16, sampleRate) {
+            const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+            const view = new DataView(buffer);
+            let offset = 0;
+
+            function writeString(str) {
+                for (let i = 0; i < str.length; i++) {
+                    view.setUint8(offset++, str.charCodeAt(i));
+                }
+            }
+
+            function writeUint32(val) {
+                view.setUint32(offset, val, true);
+                offset += 4;
+            }
+
+            function writeUint16(val) {
+                view.setUint16(offset, val, true);
+                offset += 2;
+            }
+
+            writeString('RIFF');
+            writeUint32(36 + pcm16.length * 2); 
+            writeString('WAVE');
+            writeString('fmt ');
+            writeUint32(16); 
+            writeUint16(1); 
+            writeUint16(1); 
+            writeUint32(sampleRate);
+            writeUint32(sampleRate * 2); 
+            writeUint16(2); 
+            writeUint16(16); 
+            writeString('data');
+            writeUint32(pcm16.length * 2); 
+
+            for (let i = 0; i < pcm16.length; i++) {
+                view.setInt16(offset, pcm16[i], true);
+                offset += 2;
+            }
+
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+
+        // --- GEMINI API CALLS ---
+        
+        function resetSpeakingState(message = 'Tap to Speak') {
+            isSpeaking = false;
+            ui.micBtn.disabled = false;
+            document.getElementById('end-session-btn').disabled = false;
+            ui.aiSpeakingIndicator.classList.add('hidden');
+            ui.micStatus.textContent = message;
+            currentAudio = null; 
+        }
+
+        async function textToSpeech(text, voiceName) {
+            // TTS only runs in 'kids' mode for the moment
+            if (currentMode !== 'kids') {
+                return Promise.resolve();
+            }
+
+            if (!text) return Promise.resolve();
+            
+            resetSpeakingState('AI Speaking... (Tap to skip)'); 
+            isSpeaking = true;
+            ui.micBtn.disabled = false; 
+            ui.aiSpeakingIndicator.classList.remove('hidden');
+
+            const payload = {
+                contents: [{ parts: [{ text: text }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } }
+                },
+                model: TTS_MODEL
+            };
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent?key=${apiKey}`;
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) throw new Error(`TTS API failed with status: ${response.status}`);
+
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                    const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+                    const sampleRate = sampleRateMatch ? parseInt(sampleRateMatch[1], 10) : 24000;
+                    
+                    const pcmData = base64ToArrayBuffer(audioData);
+                    const pcm16 = new Int16Array(pcmData);
+                    const wavBlob = pcmToWav(pcm16, sampleRate);
+                    const audioUrl = URL.createObjectURL(wavBlob);
+
+                    currentAudio = new Audio(audioUrl);
+                    audioPlayPromise = new Promise(resolve => {
+                        currentAudio.onended = () => { resetSpeakingState(); resolve(); };
+                        currentAudio.onerror = (e) => { 
+                            console.error("Audio playback error:", e); 
+                            resetSpeakingState('Tap to Speak (Audio Error)'); 
+                            resolve(); 
+                        };
+                    });
+                    currentAudio.play();
+                    return audioPlayPromise;
+
+                } else {
+                    throw new Error("Invalid audio data received from TTS API.");
+                }
+
+            } catch (error) {
+                console.error("TTS Error:", error);
+                resetSpeakingState('Tap to Speak (Voice Failed)');
+                return Promise.resolve();
+            }
+        }
+
+        async function getLLMResponse(userText, systemPrompt, useSearch = false) {
+            showThinking(); 
+            
+            let currentConversation = conversationHistory;
+            
+            const isReportRequest = userText === "GENERATE_REPORT_REQUEST";
+            const isSyllabusRequest = userText.startsWith("Find the official");
+
+            if (isReportRequest) {
+                // For report generation, send the full history + the special instruction prompt
+                currentConversation = [
+                    ...conversationHistory, 
+                    { role: "user", parts: [{ text: "Based on the entire conversation history above, please generate the comprehensive analysis report as defined in your system instruction." }] }
+                ];
+            } else if (isSyllabusRequest) {
+                 currentConversation = [{ role: "user", parts: [{ text: userText }] }];
+            } else if (userText === "START_INTERVIEW") {
+                currentConversation = [{ role: "user", parts: [{ text: "Start the interview now. Ask the first question based on the provided context." }] }];
+            } else {
+                currentConversation.push({ role: "user", parts: [{ text: userText }] });
+            }
+
+            const payload = {
+                contents: currentConversation,
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                tools: useSearch ? [{ "google_search": {} }] : undefined
+            };
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${LLM_MODEL}:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`LLM API failed with status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const aiResponseText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (aiResponseText) {
+                    // Only update conversation history for normal turns
+                    if (userText !== "GENERATE_REPORT_REQUEST" && !isSyllabusRequest) {
+                        conversationHistory.push({ role: "model", parts: [{ text: aiResponseText }] });
+                    }
+                    
+                    hideThinking();
+                    return aiResponseText;
+                } else {
+                    throw new Error("LLM returned no text content.");
+                }
+
+            } catch (error) {
+                console.error("LLM Generation Error:", error);
+                hideThinking();
+                resetSpeakingState('Tap to Speak (LLM Failed)'); 
+                return `[Error: ${error.message}]. Please try again.`;
+            }
+        }
+
+        // --- INTERVIEW FLOW MANAGEMENT ---
+
+        function getSystemPrompt(isReportGeneration = false) {
+            const selectedLanguage = ui.languageSelect.value;
+            let prompt = "";
+            let aiRole = "";
+            let aiAvatar = "";
+            let ttsVoice = 'Kore';
+            
+            // --- REPORT GENERATION PROMPTS ---
+            if (isReportGeneration) {
+                if (currentMode === 'viva') {
+                    const board = ui.vivaBoard.value;
+                    const cls = ui.vivaClass.value;
+                    const subject = ui.vivaSubject.value;
+                    return `Based ONLY on the entire conversation history of this ${board} Class ${cls} ${subject} viva, generate a comprehensive performance report. The report MUST be formatted using Markdown and include:
+                    1.  **# VIVA PERFORMANCE REPORT** as the main title.
+                    2.  **## Overview** section with Date, Board, Class, Subject, and a brief, professional summary of the session.
+                    3.  **## Overall Grade/Score** (e.g., 78/100).
+                    4.  **## Strongest Areas** (list 3 key areas/concepts the student handled well, with one brief example from their responses or feedback).
+                    5.  **## Areas for Improvement** (list 3 key weaknesses, with one specific correction or suggested action for each).
+                    6.  **## Communication & Tone Analysis** (Assessment of confidence, fluency, and professional demeanor based on the 'Tone' history).
+                    7.  **## Conclusion & Next Steps** (Actionable advice for preparation).
+                    Do not include any pipe (|) characters in the output.`;
+                } else if (currentMode === 'comm') {
+                    const scenario = document.getElementById('comm-scenario').value;
+                    const goal = document.getElementById('comm-goal').value;
+                     return `Based ONLY on the entire conversation history of this Communication Training session (Scenario: ${scenario}, Focus: ${goal}), generate a detailed analysis report. The report MUST be formatted using Markdown and include:
+                    1.  **# COMMUNICATION TRAINING REPORT** as the main title.
+                    2.  **## Session Summary** with Scenario, Focus Goal, and overall assessment.
+                    3.  **## Metric Breakdown** (Summarize how the user performed against the **${goal}** goal across all turns, mentioning specific scores/metrics like pace, clarity, or confidence indicators).
+                    4.  **## Key Feedback Points** (List 3 crucial, actionable points for improvement).
+                    5.  **## Next Steps** (Suggestion for continued practice).
+                    Do not include any pipe (|) characters in the output.`;
+                } else {
+                    // Generic report prompt for PRO, KIDS, ARENA
+                    const modeName = currentMode === 'pro' ? 'Professional Mock Interview' : 
+                                    currentMode === 'kids' ? 'Pre-Primary Admissions Training' : 'Gamified Arena Session';
+                    
+                    return `Based ONLY on the entire conversation history of this ${modeName} session, generate a comprehensive performance report. The report MUST be formatted using Markdown and include:
+                    1.  **# SESSION ANALYSIS REPORT: ${modeName.toUpperCase()}** as the main title.
+                    2.  **## Overview** section with Date, Mode, and a brief, professional summary of the session.
+                    3.  **## Key Strengths** (list 3 key areas the user demonstrated competence in, with one brief example from their responses).
+                    4.  **## Critical Weaknesses** (list 3 key areas needing immediate improvement, with one specific correction or suggested action for each).
+                    5.  **## Communication & Tone Summary** (Assessment of fluency, tone, and confidence based on the 'Tone' history detected during the session).
+                    6.  **## Final Advice** (Actionable advice for future practice).
+                    Do not include any pipe (|) characters in the output.`;
+                }
+            }
+
+
+            // --- INTERVIEW PROMPTS ---
+            if (currentMode === 'viva') {
+                const board = ui.vivaBoard.value;
+                const cls = ui.vivaClass.value;
+                const subject = ui.vivaSubject.value;
+                const customTopics = document.getElementById('viva-custom-topics').value;
+                let topicContext = customTopics ? `The specific chapter/topic is: "${customTopics}".` : "Ask general questions from the syllabus.";
+
+                if ((board.includes("ICSE") || board.includes("ISC")) && subject.includes("English Literature")) {
+                    topicContext += " IMPORTANT: The current syllabus includes 'Julius Caesar' (9/10), 'Treasure Chest' (9/10), 'Macbeth' (11/12), 'Prism' short stories (11/12), and 'Rhapsody' poems (11/12). Please base your questions on this specific curriculum.";
+                }
+
+                aiRole = `You are a strict and professional ${board} (Class ${cls}) ${subject} examiner conducting a VIVA. You must conduct the entire interview in ${selectedLanguage}.`;
+                aiAvatar = '🎓';
+                ttsVoice = 'Kore';
+                prompt = `${aiRole} Your questions must be highly specific to the official ${board} Class ${cls} ${subject} syllabus. ${topicContext} Ensure questions test deep understanding. Your entire response MUST contain three parts separated by a pipe character '|' (and nothing else): [Sentiment/Tone Analysis of previous answer (e.g., 'Tone: Confident')]|[Feedback/Evaluation on previous answer (or 'START' for the first turn)]|[Next Question to ask (in selected language)].`;
+
+            } else if (currentMode === 'kids') {
+                const level = document.getElementById('kids-level').value;
+                aiRole = `You are a friendly ${level} pre-primary school teacher with a colorful cartoon avatar. You must conduct the entire interview in ${selectedLanguage}.`;
+                aiAvatar = '🧸';
+                ttsVoice = 'Puck'; 
+                prompt = `${aiRole} Ask simple, age-appropriate oral questions for a child being interviewed for admission. Use an extremely encouraging and simple tone. Your entire response MUST contain three parts separated by a pipe character '|' (and nothing else): [Sentiment/Tone Analysis of previous answer (e.g., 'Tone: Enthusiastic')]|[Feedback/Evaluation on previous answer (or 'START' for the first turn)]|[Next Question to ask (in selected language)]. Example: 'Tone: Happy|Wow, that’s a beautiful name!|Can you point to a red apple?'`;
+
+            } else if (currentMode === 'pro') {
+                const examType = document.getElementById('pro-exam-type').value;
+                const pacing = document.getElementById('pro-pacing').value;
+                ttsVoice = document.getElementById('pro-panelist-voice').value; 
+                aiRole = `You are a serious, high-level panelist for the ${examType} interview. The pacing should be ${pacing}. You must conduct the entire interview in ${selectedLanguage}.`;
+                aiAvatar = '🎯';
+                prompt = `${aiRole} Ask domain-based and situational questions, assessing clarity, depth, and confidence. Your tone must be formal and challenging, in line with the ${pacing} pacing. Your entire response MUST contain three parts separated by a pipe character '|' (and nothing else): [Sentiment/Tone Analysis of previous answer (e.g., 'Tone: Confident')]|[Feedback/Evaluation on previous answer (or 'START' for the first turn)]|[Next Question to ask (in selected language)].`;
+            
+            } else if (currentMode === 'comm') {
+                const scenario = document.getElementById('comm-scenario').value;
+                const goal = document.getElementById('comm-goal').value;
+                const context = document.getElementById('comm-context').value;
+                
+                aiRole = `You are an expert communication coach specializing in the **${goal}** area.`;
+                aiAvatar = '🗣️';
+                ttsVoice = 'Achernar';
+                
+                prompt = `${aiRole} You are coaching the user in a **${scenario}** scenario, specifically focusing on their **${goal}**. The context is: "${context}".
+                
+                Your task is to facilitate a role-play/practice session. After the user speaks, you must provide extremely detailed, metric-driven feedback related to the **${goal}**. For example, if the goal is 'Pace', your feedback should include WPM (Words Per Minute) estimation. If the goal is 'Clarity', point out specific words/sounds that were muffled or unclear.
+                
+                Your 'Next Prompt' must be your continuation in the role-play or your next instruction for the user.
+                
+                Your entire response MUST contain three parts separated by a pipe character '|' (and nothing else): 
+                [Sentiment/Tone Analysis of previous answer (e.g., 'Tone: Focused')]|
+                [Detailed Metric Feedback on the user's last response (or 'START' for the first turn). MUST mention the goal: ${goal}.]|
+                [Next Prompt/Role-Play Line/Instruction (in selected language)].`;
+            } else if (currentMode === 'arena') {
+                const arenaType = document.getElementById('arena-type').value;
+                aiRole = `You are the judge of a competitive ${arenaType} session. You must conduct the entire session in ${selectedLanguage}.`;
+                aiAvatar = '🎮';
+                ttsVoice = 'Gacrux';
+                prompt = `${aiRole} Start a group discussion/scenario prompt relevant to ${arenaType}. Your entire response MUST contain three parts separated by a pipe character '|' (and nothing else): [Sentiment/Tone Analysis of previous answer (e.g., 'Tone: Aggressive')]|[A short, competitive evaluation (or 'START' for the first turn)]|[Next Question/Scenario to present (in selected language)].`;
+            }
+
+            ui.aiRoleDisplay.textContent = aiRole;
+            ui.aiAvatar.textContent = aiAvatar;
+            currentPanelistVoice = ttsVoice;
+            return prompt;
+        }
+
+        async function startInterview(mode) {
+            currentMode = mode;
+            conversationHistory = [];
+            ui.feedbackArea.classList.add('hidden');
+            ui.interviewScreen.classList.remove('hidden');
+            ui.homeScreen.classList.add('hidden');
+            ui.reportView.classList.add('hidden'); // Ensure report is hidden
+            Object.values(ui.configs).forEach(el => el.classList.add('hidden'));
+
+            if (!initSpeechRecognition()) {
+                ui.aiQuestion.textContent = 'Setup Failed: Speech recognition not available.';
+                return;
+            }
+            
+            // Enable the End Session button on start
+            document.getElementById('end-session-btn').disabled = false;
+
+            if (currentMode === 'comm') {
+                ui.commScenarioText.classList.remove('hidden');
+                const scenario = document.getElementById('comm-scenario').value;
+                const goal = document.getElementById('comm-goal').value;
+                const context = document.getElementById('comm-context').value;
+                
+                ui.commScenarioText.innerHTML = `**Scenario:** ${scenario} | **Focus:** ${goal}<br>_Context: ${context}_`;
+                ui.aiQuestion.textContent = 'Starting role-play... wait for the coach\'s first instruction.';
+                
+                await interviewLoop("START_INTERVIEW"); 
+            } else {
+                ui.commScenarioText.classList.add('hidden');
+                ui.aiQuestion.textContent = 'Interview preparing...';
+                await interviewLoop("START_INTERVIEW"); 
+            }
+        }
+
+        // New function for the back button (only exits, no report)
+        function backToModes() {
+            if (recognition) recognition.stop();
+            if (currentAudio) currentAudio.pause();
+            resetSpeakingState('Select a mode to begin.');
+            
+            // Clear report content
+            ui.analysisReportContent.innerHTML = '<p class="text-gray-400 text-center">Generating detailed report...</p>';
+            
+            showMode('home');
+        }
+
+        // Main function to end session, generate report, and display it
+        async function endSessionAndGenerateReport() {
+            if (conversationHistory.length < 3) { // Requires at least 2 exchanges (AI Start + User Reply + AI Question/Feedback)
+                const confirmed = await showCustomConfirmModal("End Session?", "Are you sure you want to end the session? No meaningful report can be generated with fewer than two exchanges. Do you want to return to the main menu?");
+                if (confirmed) {
+                     backToModes();
+                }
+                return;
+            }
+            
+            // Disable the end button and mic and hide interview screen
+            document.getElementById('end-session-btn').disabled = true;
+            ui.micBtn.disabled = true;
+            ui.interviewScreen.classList.add('hidden');
+            ui.reportView.classList.remove('hidden');
+            
+            await generateFinalReport(); 
+        }
+
+        // Simplified function to generate report and display it in the new view
+        async function generateFinalReport() {
+            showThinking('Generating detailed analysis report...');
+            
+            // The system prompt is crucial for formatting the report in markdown
+            const systemPrompt = getSystemPrompt(true); 
+            
+            // Use a special userText to trigger the non-conversation path in getLLMResponse
+            const analysisMarkdown = await getLLMResponse("GENERATE_REPORT_REQUEST", systemPrompt, false);
+            
+            // Convert simple markdown headings and lists to HTML for a nice display
+            let reportHtml = analysisMarkdown
+                .replace(/# (.*)/g, '<h1 class="text-3xl font-bold mb-4 border-b pb-2 text-indigo-400">$1</h1>')
+                .replace(/## (.*)/g, '<h2 class="text-2xl font-semibold mt-6 mb-3 border-b pb-1 text-indigo-300">$1</h2>')
+                .replace(/### (.*)/g, '<h3 class="text-xl font-semibold mt-4 mb-2 text-indigo-200">$1</h3>')
+                .replace(/(\*\s| \- )/g, '<li class="ml-6 list-disc text-gray-200">') // Simple bullet conversion
+                .replace(/\n\n/g, '<p>') // Paragraph break conversion
+                .replace(/\n/g, '<br>'); // Newline conversion
+
+            ui.analysisReportContent.innerHTML = reportHtml;
+            
+            hideThinking();
+        }
+
+
+        async function interviewLoop(userText) {
+            const systemPrompt = getSystemPrompt();
+            
+            const llmResponse = await getLLMResponse(userText, systemPrompt);
+            
+            const parts = llmResponse.split(/\|/g); 
+            
+            let tone = parts[0] && parts[0].startsWith('Tone:') ? parts[0].trim().substring(5).trim() : "Undetected";
+            let feedback = parts.length > 1 ? parts[1].trim() : "No specific feedback this round.";
+            let nextPrompt = parts.length > 2 ? parts.slice(2).join('|').trim() : "Sorry, I lost the context. Let's restart. Please tell me your name.";
+            
+            ui.toneText.textContent = tone;
+            if (feedback.toUpperCase() !== 'START' && feedback.length > 5) {
+                ui.aiFeedbackText.textContent = feedback;
+                ui.feedbackArea.classList.remove('hidden');
+                let score = feedback.toLowerCase().includes('good') || feedback.toLowerCase().includes('strong') ? 90 : 70;
+                savePerformance(currentMode, score, { lastFeedback: feedback, lastQuestion: ui.aiQuestion.textContent, tone: tone });
+            }
+
+            ui.aiQuestion.textContent = nextPrompt;
+            
+            await textToSpeech(nextPrompt, currentPanelistVoice);
+            
+            resetSpeakingState();
+        }
+
+        async function processUserResponse(transcript) {
+            ui.userTranscriptText.textContent = transcript;
+            ui.micStatus.textContent = 'Analyzing response...';
+            ui.micBtn.disabled = true;
+            document.getElementById('end-session-btn').disabled = true;
+            await interviewLoop(transcript);
+        }
+
+        async function analyzeResume() {
+            const fileInput = document.getElementById('resume-file');
+            const outputDiv = document.getElementById('resume-analysis-output');
+            
+            if (fileInput.files.length === 0) {
+                outputDiv.textContent = "Please upload a resume file first.";
+                outputDiv.classList.remove('hidden');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            
+            reader.onload = async function(e) {
+                const resumeContent = e.target.result;
+                outputDiv.textContent = "Analyzing resume content and detecting weak areas...";
+                outputDiv.classList.remove('hidden');
+                showThinking('Analyzing Resume...');
+
+                const analysisPrompt = `Analyze the following resume content for weak areas, missing keywords, and potential tough interview questions. Provide a short, actionable summary (max 100 words) and a list of 3 potential mock interview questions based on the content. Resume: ${resumeContent.substring(0, 3000)}...`;
+
+                const systemPrompt = "You are a senior HR consultant and resume expert. Provide concise analysis and personalized questions based on the user's resume.";
+                
+                const analysisResult = await getLLMResponse(analysisPrompt, systemPrompt);
+                
+                conversationHistory = []; 
+
+                const parts = analysisResult.split(/\d+\./g);
+                const analysisSummary = parts[0] ? parts[0].trim() : "Analysis complete.";
+                const mockQuestions = parts.slice(1).map((q, i) => `${i + 1}. ${q.trim()}`).join('\n');
+
+                outputDiv.innerHTML = `<h4 class="font-bold text-teal-300">Analysis Summary:</h4><p class="text-gray-200">${analysisSummary}</p><h4 class="font-bold text-yellow-300 mt-3">Personalized Mock Questions:</h4><pre class="text-sm bg-gray-900 p-2 rounded">${mockQuestions}</pre>`;
+                
+                hideThinking();
+
+                if (mockQuestions.length > 0) {
+                    const firstQuestion = mockQuestions.split('\n')[0].substring(3).trim(); 
+                    ui.aiQuestion.textContent = `Resume analyzed! Preparing your personalized mock based on your profile.`;
+                    
+                    await interviewLoop(`My resume analysis showed weakness in X. Now, start the personalized mock interview by asking this question: "${firstQuestion}"`);
+                }
+            };
+            
+            reader.readAsText(file);
+        }
+
+        // Feature 2: Syllabus Viewer
+        async function fetchSyllabusSummary() {
+            const board = ui.vivaBoard.value;
+            const cls = ui.vivaClass.value;
+            const subject = ui.vivaSubject.value;
+            
+            ui.syllabusModal.classList.remove('hidden');
+            ui.syllabusTextOutput.innerHTML = `<div class="flex justify-center items-center h-full"><div class="loading-animation w-8 h-8 border-4 border-gray-500 border-t-indigo-500 rounded-full animate-spin"></div><span class="ml-3 text-indigo-400">Searching official ${board} Class ${cls} ${subject} syllabus...</span></div>`;
+            document.getElementById('syllabus-modal-status').textContent = `Fetching syllabus for ${board} Class ${cls}, Subject: ${subject}`;
+            
+            let userQuery = `Find the official ${board} Class ${cls} ${subject} syllabus. Summarize the main topics and learning outcomes in a concise, structured Markdown list.`;
+
+            // SYLLABUS FIX
+            if ((board.includes("ICSE") || board.includes("ISC")) && subject.includes("English Literature")) {
+                userQuery = `Find the official ${board} Class ${cls} ${subject} syllabus. IMPORTANT: The syllabus includes 'Julius Caesar' (9/10), 'Treasure Chest' (9/10), 'Macbeth' (11/12), 'Prism' short stories (11/12), and 'Rhapsody' poems (11/12). Please confirm and summarize this specific curriculum in a structured Markdown list.`;
+            }
+
+            const systemPrompt = "You are a curriculum expert. Use Google Search to find the most current syllabus information and format the summary using Markdown headings and lists.";
+
+            try {
+                const llmResponse = await getLLMResponse(userQuery, systemPrompt, true);
+                
+                // Convert simple markdown lists to HTML
+                let htmlResponse = llmResponse
+                    .replace(/### (.*)/g, '<h3 class="text-lg font-semibold text-indigo-300 mt-3">$1</h3>')
+                    .replace(/## (.*)/g, '<h2 class="text-xl font-bold text-indigo-200 mt-4">$1</h2>')
+                    .replace(/\* (.*)/g, '<li class="ml-4 list-disc">$1</li>')
+                    .replace(/\n/g, '<br>');
+
+                ui.syllabusTextOutput.innerHTML = htmlResponse;
+                
+            } catch (error) {
+                ui.syllabusTextOutput.textContent = "Could not fetch syllabus summary. Please check your internet connection or try again later.";
+                console.error("Syllabus fetch error:", error);
+            }
+            
+            hideThinking(); // Re-hide the main thinking indicator
+        }
+
+
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            initSpeechRecognition();
+            populateVivaBoard(); // Initial population of VIVA selectors
+            displayRandomQuote(); // Display a motivational quote on load
+            showMode('home');
+        };
+
+    </script>
+</body>
+</html>
